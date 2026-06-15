@@ -255,18 +255,17 @@ year_income = (
 year_expense = expenses[expenses["Periode"].dt.year == selected_period.year]["Nominal"].sum()
 
 active_residents = period_income_rows[period_income_rows["Iuran"] > 0].copy()
-active_residents["Status"] = active_residents.apply(
-    lambda row: "Lunas" if row["Jumlah Bayar"] >= row["Iuran"] else "Belum Lunas",
-    axis=1,
+active_residents["Status"] = active_residents["Jumlah Bayar"].apply(
+    lambda amount: "Sudah Bayar" if amount > 0 else "Belum Bayar"
 )
-paid_count = (active_residents["Status"] == "Lunas").sum()
+paid_count = (active_residents["Status"] == "Sudah Bayar").sum()
 
 if page == "Ringkasan":
     col1, col2, col3, col4 = st.columns(4)
     col1.metric(f"Surplus {selected_period.year}", rupiah(year_income - year_expense))
     col2.metric("Pemasukan Periode", rupiah(period_income))
     col3.metric("Pengeluaran Periode", rupiah(period_expense))
-    col4.metric("Iuran Lunas", f"{paid_count} / {len(active_residents)} penghuni")
+    col4.metric("Sudah Bayar Iuran", f"{paid_count} / {len(active_residents)} penghuni")
 
     year_periods = sorted(
         period for period in available_periods if period.year == selected_period.year
@@ -327,7 +326,10 @@ if page == "Ringkasan":
     with right:
         st.subheader("Status Iuran")
         progress = paid_count / len(active_residents) if len(active_residents) else 0
-        st.progress(progress, text=f"{paid_count} dari {len(active_residents)} penghuni lunas")
+        st.progress(
+            progress,
+            text=f"{paid_count} dari {len(active_residents)} penghuni sudah bayar",
+        )
         status_preview = active_residents[["Nama", "Tipe Kamar", "Status"]]
         st.dataframe(status_preview, hide_index=True, use_container_width=True)
 
@@ -364,11 +366,12 @@ elif page == "Pengeluaran":
 elif page == "Iuran Penghuni":
     st.subheader(f"Status Iuran Penghuni - {selected_label}")
     filter_status = st.segmented_control(
-        "Status", ["Semua", "Lunas", "Belum Lunas"], default="Semua"
+        "Filter Iuran",
+        ["Belum Bayar", "Sudah Bayar"],
+        default="Belum Bayar",
     )
     status_data = active_residents
-    if filter_status != "Semua":
-        status_data = status_data[status_data["Status"] == filter_status]
+    status_data = status_data[status_data["Status"] == filter_status]
     st.dataframe(
         status_data[["Nama", "Tipe Kamar", "Iuran", "Jumlah Bayar", "Status"]],
         hide_index=True,
