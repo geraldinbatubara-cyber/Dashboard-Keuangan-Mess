@@ -177,7 +177,12 @@ def load_data(path, modified_time):
             continue
         if current_period is None or pd.isna(description) or not str(description).strip():
             continue
-        nominal = parse_money(amount, values_in_thousands=True)
+        # Biaya transfer dicatat dalam rupiah, sedangkan nominal operasional
+        # kecil lainnya dicatat dalam ribuan rupiah pada workbook.
+        nominal = parse_money(
+            amount,
+            values_in_thousands="cost tf" not in str(description).lower(),
+        )
         if nominal == 0:
             continue
         expenses.append(
