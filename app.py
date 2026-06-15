@@ -1,4 +1,5 @@
-from datetime import date
+from pathlib import Path
+import re
 
 import pandas as pd
 import plotly.express as px
@@ -10,6 +11,23 @@ st.set_page_config(
     page_icon=":material/account_balance_wallet:",
     layout="wide",
 )
+
+DATA_FILE = Path(__file__).parent / "data" / "Uang Mess.xlsx"
+MONTHS = {
+    "januari": 1,
+    "februari": 2,
+    "maret": 3,
+    "april": 4,
+    "mei": 5,
+    "juni": 6,
+    "juli": 7,
+    "agustus": 8,
+    "september": 9,
+    "oktober": 10,
+    "november": 11,
+    "desember": 12,
+}
+MONTH_LABELS = {number: name.title() for name, number in MONTHS.items()}
 
 st.markdown(
     """
@@ -30,76 +48,239 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-DEFAULT_TRANSACTIONS = [
-    {"Tanggal": "2026-06-01", "Keterangan": "Saldo awal", "Kategori": "Saldo Awal", "Jenis": "Pemasukan", "Nominal": 9_020_000},
-    {"Tanggal": "2026-06-03", "Keterangan": "Iuran kamar A-01", "Kategori": "Iuran", "Jenis": "Pemasukan", "Nominal": 500_000},
-    {"Tanggal": "2026-06-04", "Keterangan": "Tagihan air", "Kategori": "Utilitas", "Jenis": "Pengeluaran", "Nominal": 720_000},
-    {"Tanggal": "2026-06-05", "Keterangan": "Perbaikan pompa air", "Kategori": "Perbaikan", "Jenis": "Pengeluaran", "Nominal": 850_000},
-    {"Tanggal": "2026-06-08", "Keterangan": "Iuran kamar B-05", "Kategori": "Iuran", "Jenis": "Pemasukan", "Nominal": 500_000},
-    {"Tanggal": "2026-06-10", "Keterangan": "Perlengkapan kebersihan", "Kategori": "Kebersihan", "Jenis": "Pengeluaran", "Nominal": 475_000},
-    {"Tanggal": "2026-06-12", "Keterangan": "Token listrik mess", "Kategori": "Utilitas", "Jenis": "Pengeluaran", "Nominal": 1_250_000},
-    {"Tanggal": "2026-06-14", "Keterangan": "Iuran kamar A-03", "Kategori": "Iuran", "Jenis": "Pemasukan", "Nominal": 500_000},
-]
-
-RESIDENTS = pd.DataFrame(
-    [
-        {"Nama": "Andi Rinaldi", "Kamar": "A-01", "Status": "Lunas", "Nominal": 500_000},
-        {"Nama": "Dewi Sartika", "Kamar": "A-02", "Status": "Lunas", "Nominal": 500_000},
-        {"Nama": "Riko Saputra", "Kamar": "A-03", "Status": "Lunas", "Nominal": 500_000},
-        {"Nama": "Budi Pratama", "Kamar": "B-02", "Status": "Belum", "Nominal": 0},
-        {"Nama": "Maya Ningsih", "Kamar": "B-04", "Status": "Belum", "Nominal": 0},
-        {"Nama": "Fajar Nugraha", "Kamar": "B-05", "Status": "Lunas", "Nominal": 500_000},
-    ]
-)
-
-if "transactions" not in st.session_state:
-    st.session_state.transactions = DEFAULT_TRANSACTIONS.copy()
-
 
 def rupiah(value):
-    return f"Rp{value:,.0f}".replace(",", ".")
+    return f"Rp{float(value):,.0f}".replace(",", ".")
 
+
+def parse_money(value, values_in_thousands=False):
+    if pd.isna(value) or value == "":
+        return 0.0
+    if isinstance(value, str):
+        cleaned = value.strip().replace("Rp", "").replace(" ", "")
+        if not cleaned:
+            return 0.0
+        try:
+            return float(cleaned.replace(",", ""))
+        except ValueError:
+            return 0.0
+    number = float(value)
+    if values_in_thousands and number != 0 and abs(number) < 10_000:
+        return number * 1_000
+    return number
+
+
+def parse_period_label(value, fallback_year):
+    text = str(value or "").strip().lower()
+    year_match = re.search(r"20\d{2}", text)
+    year = int(year_match.group()) if year_match else fallback_year
+    month = next((number for name, number in MONTHS.items() if name in text), None)
+    return year, month
+
+
+def expense_category(description):
+    text = str(description).lower()
+    rules = [
+        ("Honor", ["honor"]),
+        ("Listrik & Token", ["listrik", "token"]),
+        ("Internet", ["wifi"]),
+        ("Konsumsi", ["galon", "gas", "kopi", "gula", "bakar"]),
+        ("Kebersihan", ["sampah", "bebersih", "tisu", "spons"]),
+        ("Perbaikan & Perlengkapan", ["perbaikan", "keran", "lampu", "pintu", "ventilasi", "cctv", "terminal", "serok", "tv", "net voli", "perlengkapan", "belanja"]),
+        ("Biaya Admin", ["cost tf", "admin"]),
+    ]
+    for category, keywords in rules:
+        if any(keyword in text for keyword in keywords):
+            return category
+    return "Lainnya"
+
+
+@st.cache_data(show_spinner=False)
+def load_data(path, modified_time):
+    del modified_time
+    income_raw = pd.read_excel(path, sheet_name="Pemasukan", header=None)
+    expense_raw = pd.read_excel(path, sheet_name="Pengeluaran", header=None)
+
+    residents = []
+    for row_index in range(3, len(income_raw)):
+        name = income_raw.iat[row_index, 1] if income_raw.shape[1] > 1 else None
+        if pd.isna(name) or str(name).strip().lower() == "iuran lebih":
+            continue
+        fee = parse_money(income_raw.iat[row_index, 3], values_in_thousands=True)
+        residents.append(
+            {
+                "row_index": row_index,
+                "Nomor": income_raw.iat[row_index, 0],
+                "Nama": str(name).strip(),
+                "Tipe Kamar": str(income_raw.iat[row_index, 2]).strip(),
+                "Iuran": fee,
+            }
+        )
+    residents = pd.DataFrame(residents)
+
+    income_records = []
+    current_year = 2022
+    for column in range(income_raw.shape[1]):
+        top_value = income_raw.iat[0, column]
+        header_value = str(income_raw.iat[1, column]).strip().lower()
+        parsed_year, parsed_month = parse_period_label(top_value, current_year)
+        if parsed_year:
+            current_year = parsed_year
+        if header_value != "jumlah bayar" or not parsed_month:
+            continue
+
+        period = pd.Timestamp(year=current_year, month=parsed_month, day=1)
+        total = parse_money(income_raw.iat[2, column])
+        for resident in residents.to_dict("records"):
+            payment = parse_money(
+                income_raw.iat[resident["row_index"], column],
+                values_in_thousands=True,
+            )
+            date_column = column + 1
+            while date_column < income_raw.shape[1]:
+                field = str(income_raw.iat[1, date_column]).strip().lower()
+                if field == "tanggal bayar":
+                    break
+                if field == "jumlah bayar":
+                    date_column = -1
+                    break
+                date_column += 1
+            paid_at = pd.NaT
+            if date_column > 0 and date_column < income_raw.shape[1]:
+                paid_at = pd.to_datetime(
+                    income_raw.iat[resident["row_index"], date_column], errors="coerce"
+                )
+            income_records.append(
+                {
+                    "Periode": period,
+                    "Nama": resident["Nama"],
+                    "Tipe Kamar": resident["Tipe Kamar"],
+                    "Iuran": resident["Iuran"],
+                    "Jumlah Bayar": payment,
+                    "Tanggal Bayar": paid_at,
+                    "Total Periode": total,
+                }
+            )
+
+    expenses = []
+    current_period = None
+    for _, row in expense_raw.iterrows():
+        sequence = row.iloc[0] if len(row) > 0 else None
+        description = row.iloc[1] if len(row) > 1 else None
+        amount = row.iloc[2] if len(row) > 2 else None
+        paid_at = row.iloc[3] if len(row) > 3 else None
+
+        if pd.isna(sequence) and pd.isna(description) and not pd.isna(amount):
+            _, month = parse_period_label(amount, 2026)
+            if month:
+                current_period = pd.Timestamp(year=2026, month=month, day=1)
+            continue
+        if current_period is None or pd.isna(description) or not str(description).strip():
+            continue
+        nominal = parse_money(amount, values_in_thousands=True)
+        if nominal == 0:
+            continue
+        expenses.append(
+            {
+                "Periode": current_period,
+                "Tanggal": pd.to_datetime(paid_at, errors="coerce"),
+                "Keterangan": str(description).strip(),
+                "Kategori": expense_category(description),
+                "Nominal": nominal,
+            }
+        )
+
+    income = pd.DataFrame(income_records)
+    expense = pd.DataFrame(expenses)
+    residents = residents.drop(columns="row_index")
+    return income, expense, residents
+
+
+if not DATA_FILE.exists():
+    st.error("File data `data/Uang Mess.xlsx` tidak ditemukan.")
+    st.stop()
+
+income, expenses, residents = load_data(DATA_FILE, DATA_FILE.stat().st_mtime)
+available_periods = sorted(
+    set(income["Periode"].dropna()).union(expenses["Periode"].dropna()), reverse=True
+)
 
 with st.sidebar:
     st.title("KasMess")
     st.caption("Mess Pegawai")
     st.divider()
     page = st.radio(
-        "Menu", ["Ringkasan", "Transaksi", "Iuran Penghuni", "Laporan"]
+        "Menu", ["Ringkasan", "Pemasukan", "Pengeluaran", "Iuran Penghuni", "Laporan"]
     )
     st.divider()
-    st.caption("Pengelola aktif")
-    st.write("**Bendahara Mess**")
-
-transactions = pd.DataFrame(st.session_state.transactions)
-transactions["Tanggal"] = pd.to_datetime(transactions["Tanggal"])
+    st.caption("Sumber data")
+    st.write("**Uang Mess.xlsx**")
+    st.caption("Data riil mess, diperbarui 15 Juni 2026")
 
 st.title("Dashboard Keuangan Mess")
-st.caption("Pantau kas, iuran, dan pengeluaran mess pegawai dalam satu tempat.")
+st.caption("Ringkasan pemasukan iuran dan pengeluaran operasional mess.")
+
+period_options = {
+    f"{MONTH_LABELS[period.month]} {period.year}": period for period in available_periods
+}
+default_label = next(
+    (label for label, period in period_options.items() if period == pd.Timestamp(2026, 6, 1)),
+    next(iter(period_options)),
+)
+selected_label = st.selectbox(
+    "Periode", list(period_options), index=list(period_options).index(default_label), width=220
+)
+selected_period = period_options[selected_label]
+
+period_income_rows = income[income["Periode"] == selected_period].copy()
+period_expenses = expenses[expenses["Periode"] == selected_period].copy()
+period_income = period_income_rows["Jumlah Bayar"].sum()
+if not period_income_rows.empty:
+    recorded_total = period_income_rows["Total Periode"].max()
+    if recorded_total > 0:
+        period_income = recorded_total
+period_expense = period_expenses["Nominal"].sum()
+
+year_income = (
+    income[income["Periode"].dt.year == selected_period.year]
+    .groupby("Periode")["Total Periode"]
+    .max()
+    .sum()
+)
+year_expense = expenses[expenses["Periode"].dt.year == selected_period.year]["Nominal"].sum()
+
+active_residents = period_income_rows[period_income_rows["Iuran"] > 0].copy()
+active_residents["Status"] = active_residents.apply(
+    lambda row: "Lunas" if row["Jumlah Bayar"] >= row["Iuran"] else "Belum Lunas",
+    axis=1,
+)
+paid_count = (active_residents["Status"] == "Lunas").sum()
 
 if page == "Ringkasan":
-    st.selectbox("Periode", ["Juni 2026", "Mei 2026", "April 2026"], width=220)
-    income = transactions.loc[transactions["Jenis"] == "Pemasukan", "Nominal"].sum()
-    expense = transactions.loc[transactions["Jenis"] == "Pengeluaran", "Nominal"].sum()
-    paid = (RESIDENTS["Status"] == "Lunas").sum()
-
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Saldo Kas", rupiah(income - expense), "8,4% dari bulan lalu")
-    col2.metric("Total Pemasukan", rupiah(income))
-    col3.metric("Total Pengeluaran", rupiah(expense), "3,1%", delta_color="inverse")
-    col4.metric("Iuran Terkumpul", f"{paid} / {len(RESIDENTS)} penghuni")
+    col1.metric(f"Surplus {selected_period.year}", rupiah(year_income - year_expense))
+    col2.metric("Pemasukan Periode", rupiah(period_income))
+    col3.metric("Pengeluaran Periode", rupiah(period_expense))
+    col4.metric("Iuran Lunas", f"{paid_count} / {len(active_residents)} penghuni")
+
+    year_periods = sorted(
+        period for period in available_periods if period.year == selected_period.year
+    )
+    cashflow_rows = []
+    for period in year_periods:
+        month_income = income[income["Periode"] == period]["Total Periode"].max()
+        month_expense = expenses[expenses["Periode"] == period]["Nominal"].sum()
+        cashflow_rows.extend(
+            [
+                {"Bulan": MONTH_LABELS[period.month], "Jenis": "Pemasukan", "Nominal": month_income},
+                {"Bulan": MONTH_LABELS[period.month], "Jenis": "Pengeluaran", "Nominal": month_expense},
+            ]
+        )
+    cashflow = pd.DataFrame(cashflow_rows)
 
     left, right = st.columns([1.6, 1])
-    cashflow = pd.DataFrame(
-        {
-            "Bulan": ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun"] * 2,
-            "Jenis": ["Pemasukan"] * 6 + ["Pengeluaran"] * 6,
-            "Nominal": [6_200_000, 6_900_000, 7_400_000, 6_600_000, 8_200_000, income]
-            + [4_400_000, 4_800_000, 5_200_000, 4_300_000, 5_700_000, expense],
-        }
-    )
     with left:
-        st.subheader("Arus Kas 6 Bulan")
+        st.subheader(f"Arus Kas {selected_period.year}")
         figure = px.bar(
             cashflow,
             x="Bulan",
@@ -113,94 +294,121 @@ if page == "Ringkasan":
 
     with right:
         st.subheader("Komposisi Pengeluaran")
-        expenses = (
-            transactions[transactions["Jenis"] == "Pengeluaran"]
-            .groupby("Kategori", as_index=False)["Nominal"]
-            .sum()
-        )
-        figure = px.pie(
-            expenses,
-            names="Kategori",
-            values="Nominal",
-            hole=0.58,
-            color_discrete_sequence=["#176b4d", "#d97824", "#6e91aa", "#c6d2cc"],
-        )
-        figure.update_layout(margin=dict(l=0, r=0, t=15, b=0), legend_title_text="")
-        st.plotly_chart(figure, use_container_width=True)
+        category_data = period_expenses.groupby("Kategori", as_index=False)["Nominal"].sum()
+        if category_data.empty:
+            st.info("Belum ada pengeluaran pada periode ini.")
+        else:
+            figure = px.pie(
+                category_data,
+                names="Kategori",
+                values="Nominal",
+                hole=0.58,
+                color_discrete_sequence=["#176b4d", "#d97824", "#6e91aa", "#c6d2cc"],
+            )
+            figure.update_layout(margin=dict(l=0, r=0, t=15, b=0), legend_title_text="")
+            st.plotly_chart(figure, use_container_width=True)
 
     left, right = st.columns([1.45, 1])
     with left:
-        st.subheader("Transaksi Terbaru")
-        latest = transactions.sort_values("Tanggal", ascending=False).head(6).copy()
-        latest["Tanggal"] = latest["Tanggal"].dt.strftime("%d %b %Y")
-        latest["Nominal"] = latest.apply(
-            lambda row: ("+ " if row["Jenis"] == "Pemasukan" else "- ")
-            + rupiah(row["Nominal"]),
-            axis=1,
-        )
+        st.subheader("Pengeluaran Terbaru")
+        latest = period_expenses.sort_values("Tanggal", ascending=False).copy()
+        latest["Tanggal"] = latest["Tanggal"].dt.strftime("%d %b %Y").fillna("-")
         st.dataframe(
             latest[["Tanggal", "Keterangan", "Kategori", "Nominal"]],
             hide_index=True,
             use_container_width=True,
+            column_config={"Nominal": st.column_config.NumberColumn(format="Rp %d")},
         )
     with right:
         st.subheader("Status Iuran")
-        st.progress(paid / len(RESIDENTS), text=f"{paid} dari {len(RESIDENTS)} penghuni sudah membayar")
-        st.dataframe(
-            RESIDENTS[["Nama", "Kamar", "Status"]],
-            hide_index=True,
-            use_container_width=True,
-        )
+        progress = paid_count / len(active_residents) if len(active_residents) else 0
+        st.progress(progress, text=f"{paid_count} dari {len(active_residents)} penghuni lunas")
+        status_preview = active_residents[["Nama", "Tipe Kamar", "Status"]]
+        st.dataframe(status_preview, hide_index=True, use_container_width=True)
 
-elif page == "Transaksi":
-    st.subheader("Catat Transaksi")
-    with st.form("transaction_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        tx_type = col1.selectbox("Jenis", ["Pemasukan", "Pengeluaran"])
-        tx_date = col2.date_input("Tanggal", value=date.today())
-        description = st.text_input("Keterangan")
-        col1, col2 = st.columns(2)
-        category = col1.selectbox(
-            "Kategori",
-            ["Iuran", "Utilitas", "Kebersihan", "Konsumsi", "Perbaikan", "Lainnya"],
-        )
-        amount = col2.number_input("Nominal", min_value=0, step=50_000)
-        submitted = st.form_submit_button("Simpan Transaksi", type="primary")
-        if submitted and description and amount > 0:
-            st.session_state.transactions.append(
-                {
-                    "Tanggal": str(tx_date),
-                    "Keterangan": description,
-                    "Kategori": category,
-                    "Jenis": tx_type,
-                    "Nominal": amount,
-                }
-            )
-            st.success("Transaksi berhasil ditambahkan.")
-            st.rerun()
-
-    st.subheader("Daftar Transaksi")
+elif page == "Pemasukan":
+    st.subheader(f"Pemasukan Iuran - {selected_label}")
+    display = period_income_rows[
+        ["Nama", "Tipe Kamar", "Iuran", "Jumlah Bayar", "Tanggal Bayar"]
+    ].copy()
     st.dataframe(
-        transactions.sort_values("Tanggal", ascending=False),
+        display,
         hide_index=True,
         use_container_width=True,
+        column_config={
+            "Iuran": st.column_config.NumberColumn(format="Rp %d"),
+            "Jumlah Bayar": st.column_config.NumberColumn(format="Rp %d"),
+            "Tanggal Bayar": st.column_config.DateColumn(format="DD MMM YYYY"),
+        },
+    )
+
+elif page == "Pengeluaran":
+    st.subheader(f"Pengeluaran - {selected_label}")
+    st.metric("Total Pengeluaran", rupiah(period_expense))
+    st.dataframe(
+        period_expenses.sort_values("Tanggal", ascending=False),
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Periode": None,
+            "Tanggal": st.column_config.DateColumn(format="DD MMM YYYY"),
+            "Nominal": st.column_config.NumberColumn(format="Rp %d"),
+        },
     )
 
 elif page == "Iuran Penghuni":
-    st.subheader("Status Iuran Penghuni")
-    st.dataframe(RESIDENTS, hide_index=True, use_container_width=True)
+    st.subheader(f"Status Iuran Penghuni - {selected_label}")
+    filter_status = st.segmented_control(
+        "Status", ["Semua", "Lunas", "Belum Lunas"], default="Semua"
+    )
+    status_data = active_residents
+    if filter_status != "Semua":
+        status_data = status_data[status_data["Status"] == filter_status]
+    st.dataframe(
+        status_data[["Nama", "Tipe Kamar", "Iuran", "Jumlah Bayar", "Status"]],
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Iuran": st.column_config.NumberColumn(format="Rp %d"),
+            "Jumlah Bayar": st.column_config.NumberColumn(format="Rp %d"),
+        },
+    )
 
 else:
     st.subheader("Laporan Keuangan")
-    report = transactions.copy()
-    report["Bulan"] = report["Tanggal"].dt.to_period("M").astype(str)
-    summary = report.pivot_table(
-        index="Bulan", columns="Jenis", values="Nominal", aggfunc="sum", fill_value=0
-    ).reset_index()
-    st.dataframe(summary, hide_index=True, use_container_width=True)
-    st.download_button(
-        "Unduh transaksi CSV",
-        transactions.to_csv(index=False).encode("utf-8"),
-        "transaksi_mess.csv",
+    report = []
+    for period in sorted(available_periods):
+        month_income = income[income["Periode"] == period]["Total Periode"].max()
+        month_expense = expenses[expenses["Periode"] == period]["Nominal"].sum()
+        report.append(
+            {
+                "Periode": f"{MONTH_LABELS[period.month]} {period.year}",
+                "Pemasukan": month_income,
+                "Pengeluaran": month_expense,
+                "Surplus/Defisit": month_income - month_expense,
+            }
+        )
+    report = pd.DataFrame(report)
+    st.dataframe(
+        report,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Pemasukan": st.column_config.NumberColumn(format="Rp %d"),
+            "Pengeluaran": st.column_config.NumberColumn(format="Rp %d"),
+            "Surplus/Defisit": st.column_config.NumberColumn(format="Rp %d"),
+        },
+    )
+    col1, col2 = st.columns(2)
+    col1.download_button(
+        "Unduh pemasukan CSV",
+        income.to_csv(index=False).encode("utf-8"),
+        "pemasukan_mess.csv",
+        "text/csv",
+    )
+    col2.download_button(
+        "Unduh pengeluaran CSV",
+        expenses.to_csv(index=False).encode("utf-8"),
+        "pengeluaran_mess.csv",
         "text/csv",
     )
