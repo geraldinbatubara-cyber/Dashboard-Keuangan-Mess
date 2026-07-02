@@ -32,17 +32,96 @@ MONTH_LABELS = {number: name.title() for name, number in MONTHS.items()}
 st.markdown(
     """
     <style>
-    .stApp { background: #f4f7f5; }
-    [data-testid="stSidebar"] { background: #173c31; }
+    :root {
+        --cream: #fbf7ee;
+        --paper: #fffaf2;
+        --ink: #2d2118;
+        --muted: #7d6d5f;
+        --forest: #183f33;
+        --forest-soft: #e7f0eb;
+        --terracotta: #b86b3f;
+        --gold: #d8a44b;
+        --line: #eadfce;
+    }
+    .stApp { background: radial-gradient(circle at top left, #fff4dc 0, var(--cream) 34%, #f4f7f5 100%); color: var(--ink); }
+    [data-testid="stSidebar"] { background: linear-gradient(180deg, #183f33 0%, #102b24 100%); }
     [data-testid="stSidebar"] * { color: white; }
     div[data-testid="stMetric"] {
-        background: white;
-        border: 1px solid #e2e9e5;
+        background: rgba(255, 250, 242, .95);
+        border: 1px solid var(--line);
         border-radius: 16px;
         padding: 18px;
-        box-shadow: 0 8px 24px rgba(20, 70, 50, .06);
+        box-shadow: 0 12px 30px rgba(77, 48, 24, .08);
     }
     .block-container { padding-top: 2rem; padding-bottom: 3rem; }
+    .landing-shell {
+        min-height: calc(100vh - 6rem);
+        display: grid;
+        align-items: center;
+    }
+    .landing-card {
+        background: rgba(255, 250, 242, .92);
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        padding: clamp(26px, 4vw, 48px);
+        box-shadow: 0 24px 70px rgba(79, 53, 26, .12);
+    }
+    .eyebrow {
+        color: var(--terracotta);
+        font-weight: 800;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+        font-size: .78rem;
+        margin-bottom: .7rem;
+    }
+    .hero-title {
+        color: var(--forest);
+        font-size: clamp(2.2rem, 5vw, 4.2rem);
+        line-height: 1;
+        letter-spacing: -0.06em;
+        font-weight: 900;
+        margin-bottom: 1rem;
+    }
+    .hero-copy {
+        color: var(--muted);
+        font-size: 1.08rem;
+        line-height: 1.75;
+        max-width: 620px;
+    }
+    .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 26px;
+    }
+    .feature-pill {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px 16px;
+        color: var(--forest);
+        font-weight: 760;
+    }
+    .login-panel {
+        background: linear-gradient(180deg, #ffffff 0%, #fff8ea 100%);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 26px;
+        box-shadow: 0 16px 40px rgba(78, 50, 21, .1);
+    }
+    .login-panel h3 {
+        color: var(--forest);
+        margin-top: 0;
+        margin-bottom: 6px;
+        font-size: 1.35rem;
+    }
+    .login-panel p {
+        color: var(--muted);
+        line-height: 1.6;
+    }
+    @media (max-width: 760px) {
+        .feature-grid { grid-template-columns: 1fr; }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -51,6 +130,74 @@ st.markdown(
 
 def rupiah(value):
     return f"Rp{float(value):,.0f}".replace(",", ".")
+
+
+def get_secret(key, default=""):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+
+def login_gate():
+    if st.session_state.get("authenticated"):
+        return
+
+    configured_username = str(get_secret("AUTH_USERNAME", "")).strip()
+    configured_password = str(get_secret("AUTH_PASSWORD", "")).strip()
+
+    st.markdown('<div class="landing-shell"><div class="landing-card">', unsafe_allow_html=True)
+    left, right = st.columns([1.35, 0.85], gap="large")
+    with left:
+        st.markdown(
+            """
+            <div class="eyebrow">KasMess Private Dashboard</div>
+            <div class="hero-title">Keuangan mess yang rapi, hangat, dan terpercaya.</div>
+            <div class="hero-copy">
+                Pantau iuran penghuni, pengeluaran operasional, dan surplus kas mess
+                dari workbook riil. Akses dibatasi agar data penghuni tetap berada
+                di tangan pengelola yang berwenang.
+            </div>
+            <div class="feature-grid">
+                <div class="feature-pill">Ringkasan kas</div>
+                <div class="feature-pill">Status iuran</div>
+                <div class="feature-pill">Laporan CSV</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with right:
+        st.markdown(
+            """
+            <div class="login-panel">
+                <h3>Masuk Dashboard</h3>
+                <p>Gunakan akses bendahara yang disimpan di Streamlit Secrets.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form"):
+            username = st.text_input("Username", value=configured_username or "")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Masuk", type="primary", use_container_width=True)
+
+        if not configured_password:
+            st.warning(
+                "Akses belum dikonfigurasi. Tambahkan `AUTH_USERNAME` dan "
+                "`AUTH_PASSWORD` pada Streamlit Secrets."
+            )
+        elif submitted:
+            username_ok = not configured_username or username.strip() == configured_username
+            password_ok = password == configured_password
+            if username_ok and password_ok:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Username atau password belum sesuai.")
+
+    st.markdown("</div></div>", unsafe_allow_html=True)
+    st.stop()
 
 
 def parse_money(value, values_in_thousands=False):
@@ -201,6 +348,8 @@ def load_data(path, modified_time):
     return income, expense, residents
 
 
+login_gate()
+
 if not DATA_FILE.exists():
     st.error("File data `data/Uang Mess.xlsx` tidak ditemukan.")
     st.stop()
@@ -221,6 +370,10 @@ with st.sidebar:
     st.caption("Sumber data")
     st.write("**Uang Mess.xlsx**")
     st.caption("Data riil mess, diperbarui 15 Juni 2026")
+    st.divider()
+    if st.button("Keluar", use_container_width=True):
+        st.session_state.authenticated = False
+        st.rerun()
 
 st.title("Dashboard Keuangan Mess")
 st.caption("Ringkasan pemasukan iuran dan pengeluaran operasional mess.")

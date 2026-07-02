@@ -17,4 +17,11 @@ streamlit run app.py
 1. Hubungkan akun GitHub ke Streamlit Community Cloud.
 2. Pilih repository `geraldinbatubara-cyber/Dashboard-Keuangan-Mess`.
 3. Pilih branch `main` dan entry point `app.py`.
-4. Klik **Deploy**.
+4. Tambahkan secrets berikut pada menu **Advanced settings > Secrets**:
+
+```toml
+AUTH_USERNAME = "bendahara"
+AUTH_PASSWORD = "ganti-dengan-password-kuat"
+```
+
+5. Klik **Deploy**.
