@@ -53,71 +53,69 @@ st.markdown(
         padding: 18px;
         box-shadow: 0 12px 30px rgba(77, 48, 24, .08);
     }
-    .block-container { padding-top: 2rem; padding-bottom: 3rem; }
-    .landing-shell {
-        min-height: calc(100vh - 6rem);
-        display: grid;
-        align-items: center;
-    }
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     .landing-card {
         background: rgba(255, 250, 242, .92);
         border: 1px solid var(--line);
-        border-radius: 28px;
-        padding: clamp(26px, 4vw, 48px);
+        border-radius: 24px;
+        padding: clamp(18px, 2.8vw, 32px);
         box-shadow: 0 24px 70px rgba(79, 53, 26, .12);
     }
+    .landing-hero { padding: 8px 0 0; }
     .eyebrow {
         color: var(--terracotta);
         font-weight: 800;
         letter-spacing: .14em;
         text-transform: uppercase;
-        font-size: .78rem;
-        margin-bottom: .7rem;
+        font-size: .72rem;
+        margin-bottom: .55rem;
     }
     .hero-title {
         color: var(--forest);
-        font-size: clamp(2.2rem, 5vw, 4.2rem);
-        line-height: 1;
+        font-size: clamp(2rem, 4.2vw, 3.45rem);
+        line-height: .98;
         letter-spacing: -0.06em;
         font-weight: 900;
-        margin-bottom: 1rem;
+        margin-bottom: .75rem;
     }
     .hero-copy {
         color: var(--muted);
-        font-size: 1.08rem;
-        line-height: 1.75;
+        font-size: 1rem;
+        line-height: 1.55;
         max-width: 620px;
     }
     .feature-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 26px;
+        gap: 10px;
+        margin-top: 18px;
     }
     .feature-pill {
         background: #fff;
         border: 1px solid var(--line);
-        border-radius: 18px;
-        padding: 14px 16px;
+        border-radius: 16px;
+        padding: 10px 12px;
         color: var(--forest);
         font-weight: 760;
+        font-size: .93rem;
     }
     .login-panel {
         background: linear-gradient(180deg, #ffffff 0%, #fff8ea 100%);
         border: 1px solid var(--line);
-        border-radius: 24px;
-        padding: 26px;
+        border-radius: 20px;
+        padding: 18px 20px;
         box-shadow: 0 16px 40px rgba(78, 50, 21, .1);
     }
     .login-panel h3 {
         color: var(--forest);
         margin-top: 0;
-        margin-bottom: 6px;
-        font-size: 1.35rem;
+        margin-bottom: 4px;
+        font-size: 1.25rem;
     }
     .login-panel p {
         color: var(--muted);
-        line-height: 1.6;
+        line-height: 1.45;
+        margin-bottom: 0;
     }
     @media (max-width: 760px) {
         .feature-grid { grid-template-columns: 1fr; }
@@ -146,11 +144,11 @@ def login_gate():
     configured_username = str(get_secret("AUTH_USERNAME", "")).strip()
     configured_password = str(get_secret("AUTH_PASSWORD", "")).strip()
 
-    st.markdown('<div class="landing-shell"><div class="landing-card">', unsafe_allow_html=True)
-    left, right = st.columns([1.35, 0.85], gap="large")
+    left, right = st.columns([1.2, 0.8], gap="large")
     with left:
         st.markdown(
             """
+            <div class="landing-hero">
             <div class="eyebrow">KasMess Private Dashboard</div>
             <div class="hero-title">Keuangan mess yang rapi, hangat, dan terpercaya.</div>
             <div class="hero-copy">
@@ -162,6 +160,7 @@ def login_gate():
                 <div class="feature-pill">Ringkasan kas</div>
                 <div class="feature-pill">Status iuran</div>
                 <div class="feature-pill">Laporan CSV</div>
+            </div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -196,7 +195,6 @@ def login_gate():
             else:
                 st.error("Username atau password belum sesuai.")
 
-    st.markdown("</div></div>", unsafe_allow_html=True)
     st.stop()
 
 
